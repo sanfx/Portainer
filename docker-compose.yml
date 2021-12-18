@@ -1,0 +1,68 @@
+version: '3.7'
+
+services:
+
+  agent:
+    image: portainer/agent:2.9.2
+    environment:
+      AGENT_CLUSTER_ADDR: tasks.agent
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock
+      - /var/lib/docker/volumes:/var/lib/docker/volumes
+    networks:
+      - agent_network
+    deploy:
+      mode: global
+      placement:
+        constraints:
+          - "node.hostname!=raspberrypi"
+          - "node.platform.os == linux"
+
+  master:
+    image: portainer/portainer-ce:latest
+    command: -H tcp://tasks.agent:9001 --tlsskipverify
+    ports:
+      - "9443:9443"
+      - "9000:9000"
+      - "8001:8000"
+    volumes:
+      - portainer_data:/data
+    dns:
+      - 1.1.1.1
+      - 172.18.0.1
+    networks:
+      - agent_network
+      - traefik_proxy
+    deploy:
+      labels:
+        - traefik.enable=true
+        - traefik.http.routers.portainer-http.rule=Host(`portainer.home.local`)
+        - traefik.http.routers.portainer-http.entrypoints=http
+        - traefik.http.routers.portainer-https.entrypoints=https
+
+        - traefik.http.routers.portainer-https.rule=Host(`portainer.access.devilsan.com`)
+        - traefik.http.routers.portainer-https.tls=true
+        - traefik.http.routers.portainer-https.tls.certresolver=linode
+        - traefik.http.middlewares.portainer-https.compress=true
+        - traefik.http.routers.portainer-https.tls.domains[0].main=access.devilsan.com
+        - traefik.http.routers.portainer-https.tls.domains[0].sans=*.access.devilsan.com
+        - traefik.http.services.portainer-https.loadbalancer.server.port=9000
+      mode: replicated
+      replicas: 1
+      placement:
+        constraints:
+          - "node.hostname==rockpro64"
+
+networks:
+  traefik_proxy:
+    external: true
+  agent_network:
+    external: true
+
+volumes:
+  portainer_data:
+    driver: local
+    driver_opts:
+        type: nfs4
+        o: addr=192.168.1.40,rw
+        device: ":/media/storage/portainer_data"
